@@ -62,7 +62,7 @@ def extract(img: np.ndarray, left_x: int, top_y: int, width: int, height: int) -
         Входное изображение.
         
     left_x, top_y: int\\
-        Координаты левого верхнего угла прямоуголного фрагмента.
+        Координаты левого верхнего угла прямоугольного фрагмента.
         
     width, height: int\\
         Размеры фрагмента.
@@ -98,7 +98,7 @@ def rotate(img: np.ndarray, direction: str, angle: int) -> np.ndarray:
      direction : str\\
         Направление поворота:
         cw - по часовой стрелки;
-        ccw - против частовой стрелки.
+        ccw - против часовой стрелки.
     angle : int\\
         Угол поворота.
 
@@ -129,14 +129,14 @@ def rotate(img: np.ndarray, direction: str, angle: int) -> np.ndarray:
             if angle == 270:
                 return mirror(mirror(img, 'd'), 'v')
         case _:
-            raise NotImplementedError('Некорректрное направление. Допустимы: "cw", "ccw"')
+            raise NotImplementedError('Некорректное направление. Допустимы: "cw", "ccw"')
     
     return res
 
 
 def autocontrast(img: np.ndarray) -> np.ndarray:
     '''
-    Привести диапазон значений ярокостей изображения в диапазон [0,255].
+    Привести диапазон значений яркостей изображения в диапазон [0,255].
 
     Параметры:
     ----------
@@ -159,7 +159,7 @@ def autocontrast(img: np.ndarray) -> np.ndarray:
 
 def fixinterlace(img: np.ndarray) -> np.ndarray:
     '''
-    Обнаружить и исправить интерлейсинг (артефакт черезстрочной развёртки).
+    Обнаружить и исправить интерлейсинг (артефакт чересстрочной развёртки).
 
     Параметры:
     ----------
@@ -184,7 +184,7 @@ def fixinterlace(img: np.ndarray) -> np.ndarray:
         return var
     
     img_height, image_width = img.shape[:2]
-    for i in range (0,img_height-1,2): # создаём изображение с поменяными местами чётными и нечётными строками
+    for i in range (0,img_height-1,2): # создаём изображение с поменянными местами чётными и нечётными строками
         res[[i, i + 1]] = res[[i + 1, i]]
     
     if calc_variation(res) < calc_variation(img): # оцениваем, какое из них "меньше интерлейсинг"
@@ -211,7 +211,7 @@ if __name__ == '__main__':  # если файл выполняется как о
     #if len(img.shape) == 3:  # оставим только 1 канал (пусть будет 0-й) для удобства: всё равно это ч/б изображение
     #    img = img[:, :, 0]
 
-    # получить результат обработки для разных комманд
+    # получить результат обработки для разных команд
     if args.command == 'mirror':
         res = mirror(img, args.parameters[0])
 
