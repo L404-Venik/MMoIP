@@ -210,7 +210,7 @@ def compute_mse (input_file_1, input_file_2):
         `float`, MSE metric
     """
 
-    mse = np.mean((input_file_1[:,:,0] - input_file_2[:,:,0]) ** 2)
+    mse = np.mean((input_file_1 - input_file_2) ** 2)
     
     return mse
 
@@ -276,9 +276,9 @@ def median_filter(radius, input_file):
 
     for i in range(h):
         min_i = i
-        max_i = i + 2 * radius
+        max_i = i + 2 * radius + 1
         for j in range(w):
-            window = input_file[min_i: max_i, j : j + 2 * radius]
+            window = input_file[min_i: max_i, j : j + 2 * radius + 1]
             result[i,j] = np.median(window) 
 
     return result
@@ -286,16 +286,80 @@ def median_filter(radius, input_file):
 
 def gauss_filter (sigma_d, input_file):
     
-    
-    return ...
+    h,w,_ = input_file.shape
+    result = np.zeros_like(input_file)
+
+    radius = int(np.ceil(3 * sigma_d))
+    input_file = np.pad(input_file,((radius,radius),(radius,radius),(0,0)), mode='edge')
+
+    # Создание гауссового ядра
+    y, x = np.ogrid[-radius: radius + 1, -radius: radius + 1]
+    gauss_kernel = np.exp(-(x**2 + y**2) / (2 * sigma_d**2))
+    gauss_kernel /= gauss_kernel.sum()  # Нормализуем ядро
+
+    for i in range(h):
+        min_i = i
+        max_i = i + 2 * radius + 1
+        for j in range(w):
+            window = input_file[min_i: max_i, j : j + 2 * radius + 1]
+            result[i, j] = np.tensordot(window, gauss_kernel, axes=((0, 1), (0, 1)))
+
+    return result
 
 def bilateral_filter(sigma_d, sigma_r, input_file):
 
-    return ...
+    h,w,_ = input_file.shape
+    result = np.zeros_like(input_file)
 
+    radius = int(np.ceil(3 * sigma_d))
+    input_file = np.pad(input_file,((radius,radius),(radius,radius),(0,0)), mode='edge')
+
+    # Создание гауссового ядра
+    y, x = np.ogrid[-radius: radius + 1, -radius: radius + 1]
+    gauss_kernel = np.exp(-(x**2 + y**2) / (2 * sigma_d**2))
+
+    for i in range(h):
+        min_i = i
+        max_i = i + 2 * radius + 1
+        for j in range(w):
+            window = input_file[min_i: max_i, j : j + 2 * radius + 1]
+
+            # Вычисляем разностное ядро на основе разности интенсивности
+            center_pixel = input_file[i + radius, j + radius]
+            intensity_diff = window - center_pixel
+            # Вычисляем ядро яркостей
+            intensity_kernel = np.exp(-(np.sum(intensity_diff ** 2, axis=-1)))
+            intensity_kernel /= intensity_kernel.sum()  # Нормализуем ядро яркостей
+            intensity_kernel /= (2 * sigma_r**2)
+
+            # Умножаем пространственное ядро на ядро яркостей
+            bilateral_kernel = gauss_kernel * intensity_kernel
+            bilateral_kernel /= bilateral_kernel.sum()  # Нормализуем
+
+            result[i, j] = np.tensordot(window, bilateral_kernel, axes=((0, 1), (0, 1)))
+
+    return result
+
+from numpy.fft import fft2, fftshift
+from skimage.transform import warp_polar
 def compare(input_file_1, input_file_2):
+    # 1. Применяем преобразование Фурье и берем амплитуду
+    f_transform1 = np.abs(fftshift(fft2(input_file_1[...,0])))
+    f_transform2 = np.abs(fftshift(fft2(input_file_2[...,0])))
 
-    return ...
+    # 2. Переводим спектры в полярные координаты
+    polar_img1 = warp_polar(f_transform1, radius=min(f_transform1.shape) // 2, scaling='log')
+    polar_img2 = warp_polar(f_transform2, radius=min(f_transform2.shape) // 2, scaling='log')
+
+    # 3. Применяем Фурье к полярному изображению по углу (оси)
+    polar_ft1 = np.abs(fft2(polar_img1, axes=(0,)))
+    polar_ft2 = np.abs(fft2(polar_img2, axes=(0,)))
+
+    # 4. Сравнение
+    if compute_mse(polar_ft1, polar_ft2) < 0.00001:
+        return 1
+
+    return 0
 
 
 if __name__ == '__main__':  # если файл выполняется как отдельный скрипт (python script.py), то здесь будет True. Если импортируется как модуль, то False. Без этой строки весь код ниже будет выполняться и при импорте файла в виде модуля (например, если захотим использовать эти функции в другой программе), а это не всегда надо.
@@ -350,15 +414,14 @@ if __name__ == '__main__':  # если файл выполняется как о
 
 
 
-
-    # получить результат обработки для разных комманд
+    # Task 2 functions
     if args.command == 'mse':
 
         # Загрузка второго изображения
         img2 = skimage.io.imread(args.output_file)  # прочитать изображение
         img2 = img2 / 255  # перевести во float и диапазон [0, 1]
 
-        res = compute_mse(input_file_1 = img1, input_file_2 = img2)
+        res = compute_mse(input_file_1 = img1[...,0], input_file_2 = img2[...,0])
         #print('MSE = ', res)
         print(res)
 
@@ -404,7 +467,6 @@ if __name__ == '__main__':  # если файл выполняется как о
     elif args.command == 'bilateral':
 
         sigma_d, sigma_r = [int(x) for x in args.parameters]
-        sigma_d = sigma_d[0]
 
         res = bilateral_filter(sigma_d, sigma_r, input_file = img1)
         NeedToSave = True
