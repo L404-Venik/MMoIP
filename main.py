@@ -209,8 +209,9 @@ def compute_mse (input_file_1, input_file_2):
     :return:
         `float`, MSE metric
     """
-
-    mse = np.mean((input_file_1 - input_file_2) ** 2)
+    input_1 = np.astype(input_file_1, np.float32)
+    input_2 = np.astype(input_file_2, np.float32)
+    mse = np.mean((input_1 - input_2) ** 2)
     
     return mse
 
@@ -235,7 +236,7 @@ def compute_psnr(input_file_1, input_file_2):
     if mse == 0:
         raise ValueError("MSE is zero, images are identical")
     
-    max_pixel_value = input_file_2.max()
+    max_pixel_value = 255
     
     psnr = 10 * np.log10(max_pixel_value**2 / mse)
     
@@ -248,17 +249,20 @@ def compute_ssim(input_file_1, input_file_2):
     h,w,d = input_file_1.shape
     ssim_values = []
 
-    L = np.max(input_file_1)
+    L = 255
     c1 = (0.01 * L) ** 2
     c2 = (0.03 * L) ** 2
 
+    input_1 = np.astype(input_file_1, np.float32)
+    input_2 = np.astype(input_file_2, np.float32)
+
     for i in range(d):  # Для каждого канала (R, G, B)
 
-        mean1 = np.mean(input_file_1[:,:,i])
-        mean2 = np.mean(input_file_2[:,:,i])
-        var1 = np.var(input_file_1[:, :, i])
-        var2 = np.var(input_file_2[:, :, i])
-        covariance = np.mean((input_file_1[:, :, i] - mean1) * (input_file_2[:, :, i]- mean2))
+        mean1 = np.mean(input_1[:,:,i])
+        mean2 = np.mean(input_2[:,:,i])
+        var1 = np.var(input_1[:, :, i] - mean1 )
+        var2 = np.var(input_2[:, :, i] - mean2)
+        covariance = np.mean((input_1[:, :, i] - mean1) * (input_2[:, :, i]- mean2))
 
         ssim_value = (2 * mean1 * mean2 + c1)/(mean1 **2 + mean2 ** 2 + c1) * (2 * covariance ** 2 + c2) / (var1 ** 2 + var2 ** 2 + c2)
 
@@ -284,9 +288,10 @@ def median_filter(radius, input_file):
     return result
 
 
+from scipy.ndimage import gaussian_filter
 def gauss_filter (sigma_d, input_file):
     
-    h,w,_ = input_file.shape
+    h,w = input_file.shape[0] ,input_file.shape[1]
     result = np.zeros_like(input_file)
 
     radius = int(np.ceil(3 * sigma_d))
@@ -309,7 +314,7 @@ def gauss_filter (sigma_d, input_file):
 def bilateral_filter(sigma_d, sigma_r, input_file):
 
     h,w,_ = input_file.shape
-    result = np.zeros_like(input_file)
+    result = np.zeros_like(input_file,np.float32)
 
     radius = int(np.ceil(3 * sigma_d))
     input_file = np.pad(input_file,((radius,radius),(radius,radius),(0,0)), mode='edge')
@@ -322,15 +327,15 @@ def bilateral_filter(sigma_d, sigma_r, input_file):
         min_i = i
         max_i = i + 2 * radius + 1
         for j in range(w):
-            window = input_file[min_i: max_i, j : j + 2 * radius + 1]
+            window = input_file[min_i: max_i, j : j + 2 * radius + 1].astype(np.float32)
 
             # Вычисляем разностное ядро на основе разности интенсивности
             center_pixel = input_file[i + radius, j + radius]
             intensity_diff = window - center_pixel
             # Вычисляем ядро яркостей
-            intensity_kernel = np.exp(-(np.sum(intensity_diff ** 2, axis=-1)))
-            intensity_kernel /= intensity_kernel.sum()  # Нормализуем ядро яркостей
-            intensity_kernel /= (2 * sigma_r**2)
+            intensity_kernel = np.exp(-(np.sum(intensity_diff ** 2, axis=-1))/(2 * sigma_r**2))
+            #intensity_kernel /= intensity_kernel.sum()  # Нормализуем ядро яркостей
+            #intensity_kernel /= 
 
             # Умножаем пространственное ядро на ядро яркостей
             bilateral_kernel = gauss_kernel * intensity_kernel
@@ -346,6 +351,9 @@ def compare(input_file_1, input_file_2):
     # 1. Применяем преобразование Фурье и берем амплитуду
     f_transform1 = np.abs(fftshift(fft2(input_file_1[...,0])))
     f_transform2 = np.abs(fftshift(fft2(input_file_2[...,0])))
+
+    f_transform1 = gaussian_filter(f_transform1, sigma=1)
+    f_transform2 = gaussian_filter(f_transform2, sigma=1)
 
     # 2. Переводим спектры в полярные координаты
     polar_img1 = warp_polar(f_transform1, radius=min(f_transform1.shape) // 2, scaling='log')
@@ -384,7 +392,7 @@ if __name__ == '__main__':  # если файл выполняется как о
 
     # Загрузка первого изображения
     img1= skimage.io.imread(args.input_file)  # прочитать изображение
-    img1 = img1 / 255  # перевести во float и диапазон [0, 1]
+    # img1 = img1 / 255  # перевести во float и диапазон [0, 1]
     #if len(img1.shape) == 3:  # оставим только 1 канал (пусть будет 0-й) для удобства: всё равно это ч/б изображение
     #    img = img1[:, :, 0]
 
@@ -419,7 +427,6 @@ if __name__ == '__main__':  # если файл выполняется как о
 
         # Загрузка второго изображения
         img2 = skimage.io.imread(args.output_file)  # прочитать изображение
-        img2 = img2 / 255  # перевести во float и диапазон [0, 1]
 
         res = compute_mse(input_file_1 = img1[...,0], input_file_2 = img2[...,0])
         #print('MSE = ', res)
@@ -429,7 +436,6 @@ if __name__ == '__main__':  # если файл выполняется как о
 
         # Загрузка второго изображения
         img2 = skimage.io.imread(args.output_file)  # прочитать изображение
-        img2 = img2 / 255  # перевести во float и диапазон [0, 1]
     
         #left_x, top_y, width, height = [int(x) for x in args.parameters]  # создать список из сконвертированных параметров и разложить по 4 переменным
         res = compute_psnr(input_file_1 = img1, input_file_2 = img2)
@@ -440,7 +446,6 @@ if __name__ == '__main__':  # если файл выполняется как о
 
         # Загрузка второго изображения
         img2 = skimage.io.imread(args.output_file)  # прочитать изображение
-        img2 = img2 / 255  # перевести во float и диапазон [0, 1]
 
         res = compute_ssim(input_file_1 = img1, input_file_2 = img2)
         #print('SSIM = ', res[0])
@@ -448,7 +453,7 @@ if __name__ == '__main__':  # если файл выполняется как о
 
     elif args.command == 'median':
 
-        radius = [int(x) for x in args.parameters]
+        radius = [float(x) for x in args.parameters]
         radius = radius[0]
 
         res = median_filter(radius, input_file = img1)
@@ -456,33 +461,34 @@ if __name__ == '__main__':  # если файл выполняется как о
 
 
     elif args.command == 'gauss':
-
-        sigma_d = [int(x) for x in args.parameters]
+        img1 = img1 / 255
+        sigma_d = [float(x) for x in args.parameters]
         sigma_d = sigma_d[0]
 
         res = gauss_filter(sigma_d, input_file = img1)
+        res = np.clip(res, 0, 1)  # обрезать всё, что выходит за диапазон [0, 1]
+        res = np.round(res * 255).astype(np.uint8)  # конвертация в байты
         NeedToSave = True
 
 
     elif args.command == 'bilateral':
 
-        sigma_d, sigma_r = [int(x) for x in args.parameters]
+        sigma_d, sigma_r = [float(x) for x in args.parameters]
 
         res = bilateral_filter(sigma_d, sigma_r, input_file = img1)
+        res = np.clip(res,0,255).astype(np.uint8)
         NeedToSave = True
 
     elif args.command == 'compare':
         # Загрузка второго изображения
-        img2 = skimage.io.imread(args.output_file)  # прочитать изображение
-        img2 = img2 / 255  # перевести во float и диапазон [0, 1]
+        img2 = skimage.io.imread(args.output_file)
+        #img2 = img2 / 255  # перевести во float и диапазон [0, 1]
         res = compare(input_file_1 = img1, input_file_2 = img2)
-        print(res)
+        print(res) # 1 - img1 и img2 - одно и тоже изображение, 0 - иначе 
 
 
     if(NeedToSave):
         # сохранить результат
-        res = np.clip(res, 0, 1)  # обрезать всё, что выходит за диапазон [0, 1]
-        res = np.round(res * 255).astype(np.uint8)  # конвертация в байты
         skimage.io.imsave(args.output_file, res)
 
 
