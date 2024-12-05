@@ -386,7 +386,87 @@ def compare(input_file_1, input_file_2):
     return 0
 
 
-if __name__ == '__main__':  # если файл выполняется как отдельный скрипт (python script.py), то здесь будет True. Если импортируется как модуль, то False. Без этой строки весь код ниже будет выполняться и при импорте файла в виде модуля (например, если захотим использовать эти функции в другой программе), а это не всегда надо.
+#########################################
+# Task 3
+
+from scipy.ndimage import convolve
+def grad(sigma, img) -> np.ndarray:
+
+    radius = int(np.ceil(3 * sigma))
+
+    # Производные двумерной функции Гаусса
+    y, x = np.meshgrid(np.arange(-radius, radius + 1), np.arange(-radius, radius + 1), indexing='ij')
+    gauss_dx = -x * np.exp(-(x**2 + y**2) / (2 * sigma**2)) / (2 * np.pi * sigma**4)
+    gauss_dy = -y * np.exp(-(x**2 + y**2) / (2 * sigma**2)) / (2 * np.pi * sigma**4)
+
+    # Нормализация ядер
+    gauss_dx -= gauss_dx.mean()
+    gauss_dy -= gauss_dy.mean()
+
+    img = img.astype(np.float32)
+
+    grad_x = convolve(img, gauss_dx, mode='nearest')
+    grad_y = convolve(img, gauss_dy, mode='nearest')
+
+    grad_magnitude = np.sqrt(grad_x**2 + grad_y**2)
+
+    gmax = grad_magnitude.max()
+    if gmax > 0:
+        grad_magnitude = grad_magnitude * (255.0 / gmax)
+
+    return grad_magnitude.astype(np.uint8)
+
+
+def nonmax(sigma, img) -> np.ndarray:
+
+    smoothed_img = gaussian_filter(img, sigma=sigma)
+    gx = np.gradient(smoothed_img, axis=1)
+    gy = np.gradient(smoothed_img, axis=0)
+    magnitude = np.sqrt(gx**2 + gy**2)
+    direction = np.arctan2(gy, gx) * (180 / np.pi)
+    direction = (direction + 180) % 180
+    
+    result = np.zeros_like(magnitude)
+    rows, cols = magnitude.shape
+    
+    for i in range(1, rows - 1):
+        for j in range(1, cols - 1):
+            angle = direction[i, j]
+            # Интерполяция
+            if (0 <= angle < 45) or (135 <= angle <= 180):
+                t = np.tan(np.radians(angle if angle < 90 else 180 - angle))
+                p1 = (1 - t) * magnitude[i, j + 1] + t * magnitude[i - 1, j + 1]
+                p2 = (1 - t) * magnitude[i, j - 1] + t * magnitude[i + 1, j - 1]
+            elif (45 <= angle < 90) or (90 <= angle < 135):
+                t = np.tan(np.radians(90 - angle if angle < 90 else angle - 90))
+                p1 = (1 - t) * magnitude[i - 1, j] + t * magnitude[i - 1, j + 1]
+                p2 = (1 - t) * magnitude[i + 1, j] + t * magnitude[i + 1, j - 1]
+
+            # Сравнение
+            if magnitude[i, j] >= p1 and magnitude[i, j] >= p2:
+                result[i, j] = magnitude[i, j]
+            else:
+                result[i, j] = 0
+
+    gmax = result.max()
+    if gmax > 0:
+        result = result * (255.0 / gmax)
+
+    return np.clip(result,0,255).astype(np.uint8)
+
+
+def canny(sigma, thr_high, thr_low, img) -> np.ndarray:
+
+    return ...
+
+
+def vessels(img) -> np.ndarray:
+
+    return ...
+
+
+
+if __name__ == '__main__':  
     # получить значения параметров командной строки
     parser = argparse.ArgumentParser(  # не все параметры этого класса могут быть нужны; читайте мануалы на docs.python.org, если интересно
         prog='ProgramName',
@@ -399,13 +479,6 @@ if __name__ == '__main__':  # если файл выполняется как о
     parser.add_argument('output_file')
     args = parser.parse_args()
 
-    # Можете посмотреть, как распознаются разные параметры. Но в самом решении лишнего вывода быть не должно.
-    # print('Распознанные параметры:')
-    # print('Команда:', args.command)  # между 2 выводами появится пробел
-    # print('Её параметры:', args.parameters)
-    # print('Входной файл:', args.input_file)
-    # print('Выходной файл:', args.output_file)
-
     # Загрузка первого изображения
     img1= skimage.io.imread(args.input_file)  # прочитать изображение
     # img1 = img1 / 255  # перевести во float и диапазон [0, 1]
@@ -413,161 +486,159 @@ if __name__ == '__main__':  # если файл выполняется как о
     #    img = img1[:, :, 0]
 
     NeedToSave = False
-    if args.command == 'mirror':
-        res = mirror(img1, args.parameters[0])
-        NeedToSave = True
+    match args.command :
+        # Task 1 functions
+        case  'mirror':
+            res = mirror(img1, args.parameters[0])
+            NeedToSave = True
 
-    elif args.command == 'extract':
-        left_x, top_y, width, height = [int(x) for x in args.parameters]  # создать список из сконвертированных параметров и разложить по 4 переменным
-        res = extract(img1, left_x, top_y, width, height)
-        NeedToSave = True
+        case 'extract':
+            left_x, top_y, width, height = [int(x) for x in args.parameters]  # создать список из сконвертированных параметров и разложить по 4 переменным
+            res = extract(img1, left_x, top_y, width, height)
+            NeedToSave = True
 
-    elif args.command == 'rotate':
-        direction = args.parameters[0]
-        angle = int(args.parameters[1])
-        res = rotate(img1, direction, angle)
-        NeedToSave = True
+        case 'rotate':
+            direction = args.parameters[0]
+            angle = int(args.parameters[1])
+            res = rotate(img1, direction, angle)
+            NeedToSave = True
 
-    elif args.command == 'autocontrast':
-        res = autocontrast(img1)
-        NeedToSave = True
+        case 'autocontrast':
+            res = autocontrast(img1)
+            NeedToSave = True
 
-    elif args.command == 'fixinterlace':
-        res = fixinterlace(img1)
-        NeedToSave = True
-
-
-
-    # Task 2 functions
-    if args.command == 'mse':
-
-        if len(img1.shape) == 3:  
-            img1 = img1[:, :, 0]
-        # Загрузка второго изображения
-        img2 = skimage.io.imread(args.output_file)
-        if len(img2.shape) == 3:  
-            img2 = img2[:, :, 0]
-
-        res = compute_mse(input_file_1 = img1, input_file_2 = img2)
-        #print('MSE = ', res)
-        print(res)
-
-    elif args.command == 'psnr':
-
-        if len(img1.shape) == 3:  
-            img1 = img1[:, :, 0]
-        # Загрузка второго изображения
-        img2 = skimage.io.imread(args.output_file)
-        if len(img2.shape) == 3:  
-            img2 = img2[:, :, 0]
-    
-        #left_x, top_y, width, height = [int(x) for x in args.parameters]  # создать список из сконвертированных параметров и разложить по 4 переменным
-        res = compute_psnr(input_file_1 = img1, input_file_2 = img2)
-        #print('PSNR = ', res)
-        print(res)
-
-    elif args.command == 'ssim':
-
-        if len(img1.shape) == 3:  
-            img1 = img1[:, :, 0]
-        # Загрузка второго изображения
-        img2 = skimage.io.imread(args.output_file)
-        if len(img2.shape) == 3:  
-            img2 = img2[:, :, 0]
-
-        res = compute_ssim(input_file_1 = img1, input_file_2 = img2)
-        #print('SSIM = ', res[0])
-        print(res)
-
-    elif args.command == 'median':
-
-        if len(img1.shape) == 3:
-            img1 = img1[:, :, 0]
-        radius = [int(x) for x in args.parameters]
-        radius = radius[0]
-
-        res = median_filter(radius, input_file = img1)
-        NeedToSave = True
-
-    elif args.command == 'gauss':
-
-        img1 = img1 / 255
-        if len(img1.shape) == 3:
-            img1 = img1[:, :, 0]
-        sigma_d = [float(x) for x in args.parameters]
-        sigma_d = sigma_d[0]
-
-        res = gauss_filter(sigma_d, input_file = img1)
-        res = np.clip(res, 0, 1)  # обрезать всё, что выходит за диапазон [0, 1]
-        res = np.round(res * 255).astype(np.uint8)  # конвертация в байты
-        NeedToSave = True
+        case 'fixinterlace':
+            res = fixinterlace(img1)
+            NeedToSave = True
 
 
-    elif args.command == 'bilateral':
+        # Task 2 functions
+        case 'mse':
 
-        sigma_d, sigma_r = [float(x) for x in args.parameters]
-        if len(img1.shape) == 2:
-            img1 = np.dstack([img1]*3)
+            if len(img1.shape) == 3:  
+                img1 = img1[:, :, 0]
+            # Загрузка второго изображения
+            img2 = skimage.io.imread(args.output_file)
+            if len(img2.shape) == 3:  
+                img2 = img2[:, :, 0]
 
-        res = bilateral_filter(sigma_d, sigma_r, input_file = img1)
-        res = np.clip(res,0,255).astype(np.uint8)
-        #print(compute_mse(res[...,0],skimage.io.imread(f"bilateral_{int(sigma_d)}_{int(sigma_r)}.png")))
-        NeedToSave = True
+            res = compute_mse(input_file_1 = img1, input_file_2 = img2)
+            #print('MSE = ', res)
+            print(res)
 
-    elif args.command == 'compare':
+        case 'psnr':
 
-        if len(img1.shape) == 3:
-            img1 = img1[:, :, 0]
-        # Загрузка второго изображения
-        img2 = skimage.io.imread(args.output_file)
-        if len(img2.shape) == 3:  
-            img2 = img2[:, :, 0]
-            
-        res = compare(input_file_1 = img1, input_file_2 = img2)
-        print(res) # 1 - img1 и img2 - одно и тоже изображение, 0 - иначе 
+            if len(img1.shape) == 3:  
+                img1 = img1[:, :, 0]
+            # Загрузка второго изображения
+            img2 = skimage.io.imread(args.output_file)
+            if len(img2.shape) == 3:  
+                img2 = img2[:, :, 0]
+        
+            #left_x, top_y, width, height = [int(x) for x in args.parameters]  # создать список из сконвертированных параметров и разложить по 4 переменным
+            res = compute_psnr(input_file_1 = img1, input_file_2 = img2)
+            #print('PSNR = ', res)
+            print(res)
 
+        case 'ssim':
+
+            if len(img1.shape) == 3:  
+                img1 = img1[:, :, 0]
+            # Загрузка второго изображения
+            img2 = skimage.io.imread(args.output_file)
+            if len(img2.shape) == 3:  
+                img2 = img2[:, :, 0]
+
+            res = compute_ssim(input_file_1 = img1, input_file_2 = img2)
+            #print('SSIM = ', res[0])
+            print(res)
+
+        case 'median':
+
+            if len(img1.shape) == 3:
+                img1 = img1[:, :, 0]
+            radius = [int(x) for x in args.parameters]
+            radius = radius[0]
+
+            res = median_filter(radius, input_file = img1)
+            NeedToSave = True
+
+        case 'gauss':
+
+            img1 = img1 / 255
+            if len(img1.shape) == 3:
+                img1 = img1[:, :, 0]
+            sigma_d = [float(x) for x in args.parameters]
+            sigma_d = sigma_d[0]
+
+            res = gauss_filter(sigma_d, input_file = img1)
+            res = np.clip(res, 0, 1)  # обрезать всё, что выходит за диапазон [0, 1]
+            res = np.round(res * 255).astype(np.uint8)  # конвертация в байты
+            NeedToSave = True
+
+        case 'bilateral':
+
+            sigma_d, sigma_r = [float(x) for x in args.parameters]
+            if len(img1.shape) == 2:
+                img1 = np.dstack([img1]*3)
+
+            res = bilateral_filter(sigma_d, sigma_r, input_file = img1)
+            res = np.clip(res,0,255).astype(np.uint8)
+            #print(compute_mse(res[...,0],skimage.io.imread(f"bilateral_{int(sigma_d)}_{int(sigma_r)}.png")))
+            NeedToSave = True
+
+        case 'compare':
+
+            if len(img1.shape) == 3:
+                img1 = img1[:, :, 0]
+            # Загрузка второго изображения
+            img2 = skimage.io.imread(args.output_file)
+            if len(img2.shape) == 3:  
+                img2 = img2[:, :, 0]
+                
+            res = compare(input_file_1 = img1, input_file_2 = img2)
+            print(res) # 1 - img1 и img2 - одно и тоже изображение, 0 - иначе 
+
+
+        # Task 3 functions
+        case 'grad':
+        
+            if len(img1.shape) == 3:
+                img1 = img1[:, :, 0]
+            sigma = [float(x) for x in args.parameters]
+            sigma = sigma[0]
+
+            res = grad(sigma, img1)
+            NeedToSave = True
+
+        case 'nonmax':
+                
+            if len(img1.shape) == 3:
+                img1 = img1[:, :, 0]
+            sigma = [float(x) for x in args.parameters]
+            sigma = sigma[0]
+
+            res = nonmax(sigma, img1)
+            NeedToSave = True
+
+        case 'canny':
+                
+            if len(img1.shape) == 3:
+                img1 = img1[:, :, 0]
+
+            sigma, thr_heigh, thr_low = [float(x) for x in args.parameters]
+
+            res = canny(sigma, thr_heigh, thr_low, img1)
+            NeedToSave = True
+
+        case 'vessels':
+                
+            if len(img1.shape) == 3:
+                img1 = img1[:, :, 0]
+
+            res = vessels(img1)
+            NeedToSave = True
 
     if(NeedToSave):
         # сохранить результат
         skimage.io.imsave(args.output_file, res)
-
-
-    # Ещё некоторые полезные штуки в Питоне:
-    
-    # l = [1, 2, 3]  # list
-    # l = l + [4, 5]  # сцепить списки
-    # l = l[1:-2]  # получить кусок списка (slice)
-    
-    # Эти тоже можно сцеплять и т.п. - читайте мануалы
-    # t = (1, 2, 3)  # tuple, элементы менять нельзя, но можно сцеплять и т.д.
-    # s = {1, 'a', None}  # set
-    
-    # d = {1: 'a', 2: 'b'}  # dictionary
-    # d = dict((1, 'a'), (2, 'b'))  # ещё вариант создания
-    # d[3] = 'c'  # добавить или заменить элемент словаря
-    # value = d.get(3, None)  # получить (get) и удалить (pop) элемент словаря, а если его нет, то вернуть значение по умолчанию (в данном случае - None)
-    # for k, v in d.items()    for k in d.keys() (или просто "in d")    for v in d.values() - варианты прохода по словарю
-    
-    # if 6 in l:  # проверка на вхождение в list, tuple, set, dict
-    #     pass
-    # else:
-    #     pass
-
-    # print(f'Какое-то число: {1.23}. \nОкруглить до сотых: {1.2345:.2f}. \nВывести переменную: {args.input_file}. \nВывести список: {[1, 2, "a", "b"]}')  # f-string позволяет создавать строки со значениями переменных
-    # print('Вывести текст с чем-нибудь другим в конце вместо перевода строки.', end='1+2=3')
-    # print()  # 2 раза перевести строку
-    # print()
-    # print('  Обрезать пробелы по краям строки и перевести всё в нижний РеГиСтР.   \n\n\n'.strip().lower())
-
-    # import copy
-    # tmp = copy.deepcopy(d)  # глубокая, полная копия объекта
-    
-    # Можно передавать в функцию сколько угодно параметров, если её объявить так:
-    # def func(*args, **kwargs):
-    # Тогда args - это list, а kwargs - это dict
-    # При вызове func(1, 'b', c, par1=2, par2='d') будет: args = [1, 'b', c], а kwargs = {'par1': 2, 'par2': 'd'}.
-    # Можно "раскрывать" списки и словари и подавать их в функции как последовательность параметров: some_func(*[l, i, s, t], **{'d': i, 'c': t})
-    
-    # p = pathlib.Path('/home/user/Documents') - создать объект Path
-    # p2 = p / 'dir/file.txt' - добавить к нему ещё уровени
-    # p.glob('*.png') и p.rglob('*.png') - найти все файлы нужного вида в папке, только в этой папке и рекурсивно; возвращает не list, а generator (выдаёт только по одному элементу за раз), поэтому если хотите получить сразу весь список файлов, то надо обернуть результат в "list(...)".
