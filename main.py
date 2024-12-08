@@ -197,7 +197,7 @@ def fixinterlace(img: np.ndarray) -> np.ndarray:
 #########################################
 # Task 2
 
-def compute_mse(input_file_1, input_file_2) -> float:
+def compute_mse(input_file_1: np.ndarray, input_file_2: np.ndarray) -> float:
     """
     :param input_file_1:
         `np.array` of shape `(n_rows, n_cols)` and dtype `np.uint8`,
@@ -216,7 +216,7 @@ def compute_mse(input_file_1, input_file_2) -> float:
     return mse
 
 
-def compute_psnr(input_file_1, input_file_2) -> float:
+def compute_psnr(input_file_1: np.ndarray, input_file_2: np.ndarray) -> float:
     """
     :param input_file_1:
         `np.array` of shape `(n_rows, n_cols)` and dtype `np.uint8`,
@@ -240,7 +240,7 @@ def compute_psnr(input_file_1, input_file_2) -> float:
     return psnr # psnr for first channel 
 
 
-def compute_ssim(input_file_1, input_file_2) -> float:
+def compute_ssim(input_file_1: np.ndarray, input_file_2: np.ndarray) -> float:
     """
     :param input_file_1:
         `np.array` of shape `(n_rows, n_cols)` and dtype `np.uint8`,
@@ -274,7 +274,7 @@ def compute_ssim(input_file_1, input_file_2) -> float:
     return max(0, min(ssim_value, 1))
 
 
-def median_filter(radius, input_file):
+def median_filter(radius, input_file: np.ndarray):
     
     h,w = input_file.shape[:2]
     result = np.zeros_like(input_file)
@@ -290,7 +290,7 @@ def median_filter(radius, input_file):
     return result
 
 
-def gauss_filter (sigma_d, input_file):
+def gauss_filter (sigma_d: float, input_file: np.ndarray):
     
     h,w = input_file.shape[:2]
     result = np.zeros_like(input_file)
@@ -312,7 +312,7 @@ def gauss_filter (sigma_d, input_file):
 
     return result
 
-def bilateral_filter(sigma_d, sigma_r, input_file):
+def bilateral_filter(sigma_d: float, sigma_r: float, input_file: np.ndarray):
 
     h,w = input_file.shape[:2]
     result = np.zeros_like(input_file,np.float32)
@@ -348,7 +348,7 @@ def bilateral_filter(sigma_d, sigma_r, input_file):
 from numpy.fft import fft2, fftshift
 from skimage.transform import warp_polar
 from scipy.ndimage import gaussian_filter
-def compare(input_file_1, input_file_2):
+def compare(input_file_1: np.ndarray, input_file_2: np.ndarray):
     # 1. Применяем преобразование Фурье и берем амплитуду
     f_transform1 = np.abs(fftshift(fft2(input_file_1)))
     f_transform2 = np.abs(fftshift(fft2(input_file_2)))
@@ -390,7 +390,7 @@ def compare(input_file_1, input_file_2):
 # Task 3
 
 from scipy.ndimage import convolve
-def grad(sigma, img) -> np.ndarray:
+def grad(sigma, img: np.ndarray) -> np.ndarray:
 
     radius = int(np.ceil(3 * sigma))
 
@@ -412,52 +412,94 @@ def grad(sigma, img) -> np.ndarray:
 
     gmax = grad_magnitude.max()
     if gmax > 0:
-        grad_magnitude = grad_magnitude * (255.0 / gmax)
+        grad_magnitude = np.round( grad_magnitude * (255.0 / gmax) )
 
     return grad_magnitude.astype(np.uint8)
 
 
-def nonmax(sigma, img) -> np.ndarray:
+def image_gradients(sigma, img: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    # Ядра Собеля для вычисления горизонтальной и вертикальной производных
+    sobel_x = np.array([[-1, 0, 1],
+                        [-2, 0, 2],
+                        [-1, 0, 1]], dtype=float)
+    
+    sobel_y = np.array([[-1, -2, -1],
+                        [ 0,  0,  0],
+                        [ 1,  2,  1]], dtype=float)
 
-    smoothed_img = gaussian_filter(img, sigma=sigma)
+    # Применение фильтра Гаусса для сглаживания
+    smoothed_img = gauss_filter(sigma, img).astype(np.float32)
+
+    # Вычисление горизонтальной (Gx) и вертикальной (Gy) компонент
+    Gx = convolve(smoothed_img, sobel_x, mode='reflect')
+    Gy = convolve(smoothed_img, sobel_y, mode='reflect')
+    
+    return Gx, Gy
+
+def nonmax(sigma, img: np.ndarray) -> np.ndarray:
+
+    smoothed_img = gauss_filter(sigma, img)
     gx = np.gradient(smoothed_img, axis=1)
     gy = np.gradient(smoothed_img, axis=0)
-    magnitude = np.sqrt(gx**2 + gy**2)
+    magnitude = grad(sigma, img)# np.sqrt(gx**2 + gy**2)
+    
     direction = np.arctan2(gy, gx) * (180 / np.pi)
     direction = (direction + 180) % 180
+    direction = np.round(direction / 45) * 45
+    direction[direction == 180] = 0
     
     result = np.zeros_like(magnitude)
+    magnitude = np.pad(magnitude,1, mode='constant', constant_values=0)
     rows, cols = magnitude.shape
     
     for i in range(1, rows - 1):
         for j in range(1, cols - 1):
-            angle = direction[i, j]
-            # Интерполяция
-            if (0 <= angle < 45) or (135 <= angle <= 180):
-                t = np.tan(np.radians(angle if angle < 90 else 180 - angle))
-                p1 = (1 - t) * magnitude[i, j + 1] + t * magnitude[i - 1, j + 1]
-                p2 = (1 - t) * magnitude[i, j - 1] + t * magnitude[i + 1, j - 1]
-            elif (45 <= angle < 90) or (90 <= angle < 135):
-                t = np.tan(np.radians(90 - angle if angle < 90 else angle - 90))
-                p1 = (1 - t) * magnitude[i - 1, j] + t * magnitude[i - 1, j + 1]
-                p2 = (1 - t) * magnitude[i + 1, j] + t * magnitude[i + 1, j - 1]
+            angle = direction[i - 1, j - 1]
+            if angle == 0:
+                p1 = magnitude[i, j-1]
+                p2 = magnitude[i, j+1]
+            elif angle == 45:
+                p1 = magnitude[i-1, j+1]
+                p2 = magnitude[i+1, j-1]
+            elif angle == 90:
+                p1 = magnitude[i-1, j]
+                p2 = magnitude[i+1, j]
+            elif angle == 135:
+                p1 = magnitude[i-1, j-1]
+                p2 = magnitude[i+1, j+1]
 
-            # Сравнение
             if magnitude[i, j] >= p1 and magnitude[i, j] >= p2:
-                result[i, j] = magnitude[i, j]
-            else:
-                result[i, j] = 0
+                result[i-1, j-1] = magnitude[i, j]
 
     gmax = result.max()
     if gmax > 0:
-        result = result * (255.0 / gmax)
+        result = np.round( result * (255.0 / gmax) )
+    result = np.clip(result,0,255).astype(np.uint8)
 
-    return np.clip(result,0,255).astype(np.uint8)
+    return result 
 
+def canny(sigma, thr_high, thr_low, img: np.ndarray) -> np.ndarray:
+    # Подавление немаксимумов
+    suppressed = nonmax(sigma, img) / 255
+    
+    # Двойной порог
+    strong_edges = (suppressed >= thr_high)
+    weak_edges = ((suppressed >= thr_low) & (suppressed < thr_high))
+    
+    # Отслеживание по гистерезису
+    result = np.zeros_like(suppressed, dtype=np.uint8)
+    rows, cols = suppressed.shape
+    
+    for i in range(1, rows - 1):
+        for j in range(1, cols - 1):
+            if strong_edges[i, j]:
+                result[i, j] = 255
+            elif weak_edges[i, j]:
+                # Проверяем наличие сильных границ среди соседей
+                if (strong_edges[i-1:i+2, j-1:j+2].any()):  # Если есть сильная граница среди 8-соседей
+                    result[i, j] = 255
 
-def canny(sigma, thr_high, thr_low, img) -> np.ndarray:
-
-    return ...
+    return result
 
 
 def vessels(img) -> np.ndarray:
