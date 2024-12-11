@@ -389,8 +389,9 @@ def compare(input_file_1: np.ndarray, input_file_2: np.ndarray):
 #########################################
 # Task 3
 
+
 from scipy.ndimage import convolve
-def grad(sigma, img: np.ndarray) -> np.ndarray:
+def get_image_grads2(sigma: float, img: np.array)-> np.ndarray:
 
     radius = int(np.ceil(3 * sigma))
 
@@ -399,15 +400,17 @@ def grad(sigma, img: np.ndarray) -> np.ndarray:
     gauss_dx = -x * np.exp(-(x**2 + y**2) / (2 * sigma**2)) / (2 * np.pi * sigma**4)
     gauss_dy = -y * np.exp(-(x**2 + y**2) / (2 * sigma**2)) / (2 * np.pi * sigma**4)
 
-    # Нормализация ядер
-    gauss_dx -= gauss_dx.mean()
-    gauss_dy -= gauss_dy.mean()
-
     img = img.astype(np.float32)
 
     grad_x = convolve(img, gauss_dx, mode='nearest')
     grad_y = convolve(img, gauss_dy, mode='nearest')
 
+    return grad_x, grad_y
+
+
+def grad(sigma: float, img: np.ndarray) -> np.ndarray:
+
+    grad_x, grad_y = get_image_grads2(sigma,img)
     grad_magnitude = np.sqrt(grad_x**2 + grad_y**2)
 
     gmax = grad_magnitude.max()
@@ -417,31 +420,10 @@ def grad(sigma, img: np.ndarray) -> np.ndarray:
     return grad_magnitude.astype(np.uint8)
 
 
-def image_gradients(sigma, img: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    # Ядра Собеля для вычисления горизонтальной и вертикальной производных
-    sobel_x = np.array([[-1, 0, 1],
-                        [-2, 0, 2],
-                        [-1, 0, 1]], dtype=float)
-    
-    sobel_y = np.array([[-1, -2, -1],
-                        [ 0,  0,  0],
-                        [ 1,  2,  1]], dtype=float)
+def nonmax(sigma: float, img: np.ndarray) -> np.ndarray:
 
-    # Применение фильтра Гаусса для сглаживания
-    smoothed_img = gauss_filter(sigma, img).astype(np.float32)
-
-    # Вычисление горизонтальной (Gx) и вертикальной (Gy) компонент
-    Gx = convolve(smoothed_img, sobel_x, mode='reflect')
-    Gy = convolve(smoothed_img, sobel_y, mode='reflect')
-    
-    return Gx, Gy
-
-def nonmax(sigma, img: np.ndarray) -> np.ndarray:
-
-    smoothed_img = gauss_filter(sigma, img)
-    gx = np.gradient(smoothed_img, axis=1)
-    gy = np.gradient(smoothed_img, axis=0)
-    magnitude = grad(sigma, img)# np.sqrt(gx**2 + gy**2)
+    gx, gy = get_image_grads2(sigma,img)
+    magnitude = np.sqrt(gx**2 + gy**2)
     
     direction = np.arctan2(gy, gx) * (180 / np.pi)
     direction = (direction + 180) % 180
@@ -449,7 +431,7 @@ def nonmax(sigma, img: np.ndarray) -> np.ndarray:
     direction[direction == 180] = 0
     
     result = np.zeros_like(magnitude)
-    magnitude = np.pad(magnitude,1, mode='constant', constant_values=0)
+    magnitude = np.pad(magnitude,1, mode='edge')
     rows, cols = magnitude.shape
     
     for i in range(1, rows - 1):
@@ -459,14 +441,14 @@ def nonmax(sigma, img: np.ndarray) -> np.ndarray:
                 p1 = magnitude[i, j-1]
                 p2 = magnitude[i, j+1]
             elif angle == 45:
-                p1 = magnitude[i-1, j+1]
-                p2 = magnitude[i+1, j-1]
+                p1 = magnitude[i-1, j-1]
+                p2 = magnitude[i+1, j+1]
             elif angle == 90:
                 p1 = magnitude[i-1, j]
                 p2 = magnitude[i+1, j]
             elif angle == 135:
-                p1 = magnitude[i-1, j-1]
-                p2 = magnitude[i+1, j+1]
+                p1 = magnitude[i-1, j+1]
+                p2 = magnitude[i+1, j-1]
 
             if magnitude[i, j] >= p1 and magnitude[i, j] >= p2:
                 result[i-1, j-1] = magnitude[i, j]
@@ -476,30 +458,59 @@ def nonmax(sigma, img: np.ndarray) -> np.ndarray:
         result = np.round( result * (255.0 / gmax) )
     result = np.clip(result,0,255).astype(np.uint8)
 
-    return result 
+    return result
 
-def canny(sigma, thr_high, thr_low, img: np.ndarray) -> np.ndarray:
+def canny(sigma: float, thr_high: float, thr_low: float, img: np.ndarray) -> np.ndarray:
     # Подавление немаксимумов
-    suppressed = nonmax(sigma, img) / 255
-    
+    suppressed = nonmax(sigma, img)
+    suppressed = np.pad(suppressed,1, mode='edge')
+    thr_high = np.round(thr_high * 255)
+    thr_low  = np.round(thr_low * 255)
+
     # Двойной порог
     strong_edges = (suppressed >= thr_high)
     weak_edges = ((suppressed >= thr_low) & (suppressed < thr_high))
+    #strong_edges = np.pad(strong_edges,1, mode='edge')
+    #weak_edges = np.pad(weak_edges,1, mode='edge')
     
     # Отслеживание по гистерезису
-    result = np.zeros_like(suppressed, dtype=np.uint8)
-    rows, cols = suppressed.shape
+    result = np.zeros_like(strong_edges, dtype=np.uint8)
+    rows, cols = result.shape
     
-    for i in range(1, rows - 1):
-        for j in range(1, cols - 1):
-            if strong_edges[i, j]:
-                result[i, j] = 255
-            elif weak_edges[i, j]:
-                # Проверяем наличие сильных границ среди соседей
-                if (strong_edges[i-1:i+2, j-1:j+2].any()):  # Если есть сильная граница среди 8-соседей
-                    result[i, j] = 255
+    # Направления смежных пикселей (включая диагонали)
+    directions = [
+        (-1, -1), (-1, 0), (-1, 1),
+        ( 0, -1),          ( 0, 1),
+        ( 1, -1), ( 1, 0), ( 1, 1)
+    ]
 
-    return result
+    def track_edges(row, col):
+        """Рекурсивное отслеживание слабых границ."""
+        for dr, dc in directions:
+            nr, nc = row + dr, col + dc
+            if (0 <= nr < rows) and (0 <= nc < cols):
+                if (weak_edges[nr, nc] and not result[nr, nc]):
+                #if (suppressed[nr, nc] > 0 and not result[nr, nc]):
+                    result[nr, nc] = 255
+                    track_edges(nr, nc)
+
+    # Обработка сильных границ
+    for r in range(1, rows - 1):
+        for c in range(1, cols - 1):
+            if strong_edges[r, c]:
+                result[r, c] = 255
+                track_edges(r, c)
+
+    # for i in range(1, rows - 1):
+    #     for j in range(1, cols - 1):
+    #         if strong_edges[i, j]:
+    #             result[i-1, j-1] = 255
+    #         elif weak_edges[i, j]:
+    #             # Проверяем наличие сильных границ среди соседей
+    #             if (strong_edges[i-1:i+2, j-1:j+2].any() or result[i-2:i+1, j-2:j+1].any()):  # Если есть сильная граница среди 8-соседей
+    #                 result[i-1, j-1] = 255
+
+    return result[1:-1, 1:-1]
 
 
 def vessels(img) -> np.ndarray:
@@ -668,9 +679,9 @@ if __name__ == '__main__':
             if len(img1.shape) == 3:
                 img1 = img1[:, :, 0]
 
-            sigma, thr_heigh, thr_low = [float(x) for x in args.parameters]
+            sigma, thr_high, thr_low = [float(x) for x in args.parameters]
 
-            res = canny(sigma, thr_heigh, thr_low, img1)
+            res = canny(sigma, thr_high, thr_low, img1)
             NeedToSave = True
 
         case 'vessels':
