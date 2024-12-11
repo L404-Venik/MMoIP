@@ -431,7 +431,7 @@ def nonmax(sigma: float, img: np.ndarray) -> np.ndarray:
     direction[direction == 180] = 0
     
     result = np.zeros_like(magnitude)
-    magnitude = np.pad(magnitude,1, mode='edge')
+    magnitude = np.pad(magnitude,1, mode='constant',constant_values=magnitude.max()+1)
     rows, cols = magnitude.shape
     
     for i in range(1, rows - 1):
