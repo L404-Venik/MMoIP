@@ -460,9 +460,8 @@ def nonmax(sigma: float, img: np.ndarray) -> np.ndarray:
 
     return result
 
-def canny(sigma: float, thr_high: float, thr_low: float, img: np.ndarray) -> np.ndarray:
+def canny(sigma: float, thr_high: float, thr_low: float, suppressed: np.ndarray) -> np.ndarray:
     # Подавление немаксимумов
-    suppressed = nonmax(sigma, img)
     suppressed = np.pad(suppressed,1, mode='edge')
     thr_high = np.round(thr_high * 255)
     thr_low  = np.round(thr_low * 255)
@@ -470,8 +469,6 @@ def canny(sigma: float, thr_high: float, thr_low: float, img: np.ndarray) -> np.
     # Двойной порог
     strong_edges = (suppressed >= thr_high)
     weak_edges = ((suppressed >= thr_low) & (suppressed < thr_high))
-    #strong_edges = np.pad(strong_edges,1, mode='edge')
-    #weak_edges = np.pad(weak_edges,1, mode='edge')
     
     # Отслеживание по гистерезису
     result = np.zeros_like(strong_edges, dtype=np.uint8)
@@ -501,21 +498,83 @@ def canny(sigma: float, thr_high: float, thr_low: float, img: np.ndarray) -> np.
                 result[r, c] = 255
                 track_edges(r, c)
 
-    # for i in range(1, rows - 1):
-    #     for j in range(1, cols - 1):
-    #         if strong_edges[i, j]:
-    #             result[i-1, j-1] = 255
-    #         elif weak_edges[i, j]:
-    #             # Проверяем наличие сильных границ среди соседей
-    #             if (strong_edges[i-1:i+2, j-1:j+2].any() or result[i-2:i+1, j-2:j+1].any()):  # Если есть сильная граница среди 8-соседей
-    #                 result[i-1, j-1] = 255
-
     return result[1:-1, 1:-1]
 
 
-def vessels(img) -> np.ndarray:
+from scipy.linalg import eigh
+def vessels(img: np.ndarray) -> np.ndarray:
+    def nonmax_vessels(sigma: float, img: np.ndarray) -> np.ndarray:
+        # Гауссово сглаживание
+        smoothed = gaussian_filter(img, sigma).astype(np.float32)
 
-    return ...
+        # Вычисление вторых производных (компоненты матрицы Гессе)
+        Ixx = gaussian_filter(smoothed, sigma, order=(2, 0))
+        Iyy = gaussian_filter(smoothed, sigma, order=(0, 2))
+        Ixy = gaussian_filter(smoothed, sigma, order=(1, 1))
+
+        # Вычисление собственных значений и векторов матрицы Гессе
+        rows, cols = img.shape
+        max_eigenvalue = np.zeros_like(img, dtype=np.float32)
+        direction = np.zeros((rows, cols, 2), dtype=np.float32)  # Для хранения направления
+
+        for i in range(rows):
+            for j in range(cols):
+                hessian = np.array([[Ixx[i, j], Ixy[i, j]],
+                                    [Ixy[i, j], Iyy[i, j]]])
+                eigvals, eigvecs = eigh(hessian)
+                
+                max_eigval_id = np.argsort(np.abs(eigvals))[1]
+                max_eigenvalue[i, j] = max(eigvals[max_eigval_id],0)
+                # Собственные векторы - направления для подавления немаксимумов
+                eigenvectors = eigvecs[:, max_eigval_id]
+                direction[i, j] = np.arctan2(eigenvectors[1], eigenvectors[0]) * 180. / np.pi
+
+        # нормализация данных
+        direction = (direction[...,0] + 180) % 180
+        direction = np.round(direction / 45) * 45
+        direction[direction == 180] = 0
+        max_eigenvalue += np.abs(max_eigenvalue.min())
+        max_eigenvalue = max_eigenvalue / np.abs(max_eigenvalue).max() * 255
+
+        # Подавление немаксимумов
+        result = np.zeros_like(max_eigenvalue)
+        padded = np.pad(max_eigenvalue, 1, mode='constant', constant_values=0)
+        for i in range(1, rows - 1):
+            for j in range(1, cols - 1):
+                #dx, dy = direction[i - 1, j - 1]
+                angle = direction[i - 1, j - 1]
+                if angle == 0:
+                    p1 = max_eigenvalue[i, j-1]
+                    p2 = max_eigenvalue[i, j+1]
+                elif angle == 45:
+                    p1 = max_eigenvalue[i-1, j-1]
+                    p2 = max_eigenvalue[i+1, j+1]
+                elif angle == 90:
+                    p1 = max_eigenvalue[i-1, j]
+                    p2 = max_eigenvalue[i+1, j]
+                elif angle == 135:
+                    p1 = max_eigenvalue[i-1, j+1]
+                    p2 = max_eigenvalue[i+1, j-1]
+
+                # Условие немаксимального подавления
+                if padded[i, j] >= p1 and padded[i, j] >= p2:
+                    result[i - 1, j - 1] = padded[i, j]
+
+        if result.max() == 0:
+            result = -result
+
+        # Нормализация результата
+        #result = canny(sigma, 0.05, 0.04, result)
+        return result.astype(np.uint8)
+
+    # Параметры сигмы для объединения
+    sigmas = [2, 3, 4]
+    results = [nonmax_vessels(sigma, img) for sigma in sigmas]
+
+    # Объединение результатов для разных значений sigma
+    final_result = np.max(results, axis=0)
+    
+    return final_result
 
 
 
@@ -680,8 +739,9 @@ if __name__ == '__main__':
                 img1 = img1[:, :, 0]
 
             sigma, thr_high, thr_low = [float(x) for x in args.parameters]
-
-            res = canny(sigma, thr_high, thr_low, img1)
+            
+            suppressed = nonmax(sigma, img1)
+            res = canny(sigma, thr_high, thr_low, suppressed)
             NeedToSave = True
 
         case 'vessels':
