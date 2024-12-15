@@ -505,12 +505,13 @@ from scipy.linalg import eigh
 def vessels(img: np.ndarray) -> np.ndarray:
     def nonmax_vessels(sigma: float, img: np.ndarray) -> np.ndarray:
         # Гауссово сглаживание
-        smoothed = gaussian_filter(img, sigma).astype(np.float32)
+        img = img.astype(np.float32)
 
+        r = np.ceil(3*sigma)
         # Вычисление вторых производных (компоненты матрицы Гессе)
-        Ixx = gaussian_filter(smoothed, sigma, order=(2, 0))
-        Iyy = gaussian_filter(smoothed, sigma, order=(0, 2))
-        Ixy = gaussian_filter(smoothed, sigma, order=(1, 1))
+        Ixx = gaussian_filter(img, sigma, radius=r, order=(2, 0),mode='nearest')
+        Iyy = gaussian_filter(img, sigma, radius=r, order=(0, 2),mode='nearest')
+        Ixy = gaussian_filter(img, sigma, radius=r, order=(1, 1),mode='nearest')
 
         # Вычисление собственных значений и векторов матрицы Гессе
         rows, cols = img.shape
@@ -533,32 +534,31 @@ def vessels(img: np.ndarray) -> np.ndarray:
         direction = (direction[...,0] + 180) % 180
         direction = np.round(direction / 45) * 45
         direction[direction == 180] = 0
-        max_eigenvalue += np.abs(max_eigenvalue.min())
         max_eigenvalue = max_eigenvalue / np.abs(max_eigenvalue).max() * 255
 
         # Подавление немаксимумов
         result = np.zeros_like(max_eigenvalue)
-        padded = np.pad(max_eigenvalue, 1, mode='constant', constant_values=0)
+        padded = np.pad(max_eigenvalue, 1, mode='edge')
+        rows, cols = padded.shape
+    
         for i in range(1, rows - 1):
             for j in range(1, cols - 1):
-                #dx, dy = direction[i - 1, j - 1]
                 angle = direction[i - 1, j - 1]
                 if angle == 0:
-                    p1 = max_eigenvalue[i, j-1]
-                    p2 = max_eigenvalue[i, j+1]
+                    p1 = padded[i-1, j]
+                    p2 = padded[i+1, j]
                 elif angle == 45:
-                    p1 = max_eigenvalue[i-1, j-1]
-                    p2 = max_eigenvalue[i+1, j+1]
+                    p1 = padded[i-1, j-1]
+                    p2 = padded[i+1, j+1]
                 elif angle == 90:
-                    p1 = max_eigenvalue[i-1, j]
-                    p2 = max_eigenvalue[i+1, j]
+                    p1 = padded[i, j-1]
+                    p2 = padded[i, j+1]
                 elif angle == 135:
-                    p1 = max_eigenvalue[i-1, j+1]
-                    p2 = max_eigenvalue[i+1, j-1]
+                    p1 = padded[i-1, j+1]
+                    p2 = padded[i+1, j-1]
 
-                # Условие немаксимального подавления
                 if padded[i, j] >= p1 and padded[i, j] >= p2:
-                    result[i - 1, j - 1] = padded[i, j]
+                    result[i-1, j-1] = padded[i, j]
 
         if result.max() == 0:
             result = -result
